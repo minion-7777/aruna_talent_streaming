@@ -6,8 +6,20 @@ const port = Number(process.env.PORT ?? 3002);
 const hostname = process.env.HOSTNAME ?? 'realtime-local';
 const redisUrl = process.env.REDIS_URL ?? 'redis://redis:6379';
 
-const redis = new Redis(redisUrl);
-const sub = new Redis(redisUrl);
+function createRedisClient(label: string): Redis {
+  const client = new Redis(redisUrl, {
+    maxRetriesPerRequest: 3,
+    connectTimeout: 5000,
+    lazyConnect: true,
+  });
+  client.on('error', (err) => {
+    console.error(`[redis:${label}]`, err.message);
+  });
+  return client;
+}
+
+const redis = createRedisClient('main');
+const sub = createRedisClient('sub');
 
 const connections = new Set<WebSocket>();
 
@@ -58,6 +70,18 @@ function send(ws: WebSocket, data: unknown) {
 }
 
 async function main() {
+  try {
+    await redis.connect();
+    await sub.connect();
+    await redis.ping();
+  } catch (err) {
+    console.error(
+      `Cannot connect to Redis at ${redisUrl}. Start it with: docker compose up redis -d`,
+    );
+    console.error(err);
+    process.exit(1);
+  }
+
   await sub.subscribe('metrics');
   sub.on('message', (_channel, message) => {
     for (const ws of connections) {

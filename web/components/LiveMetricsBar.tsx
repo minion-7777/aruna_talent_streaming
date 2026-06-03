@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PlatformMetrics } from '@/lib/api';
-import { wsUrl } from '@/lib/api';
+import { getWsUrl } from '@/lib/api';
 
 export function LiveMetricsBar({
   initial,
@@ -28,17 +28,33 @@ export function LiveMetricsBar({
     const interval = setInterval(fetchMetrics, pollMs);
 
     let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(wsUrl);
-      ws.onopen = () => setWsConnected(true);
-      ws.onclose = () => setWsConnected(false);
-      ws.onmessage = () => fetchMetrics();
-    } catch {
-      /* ignore */
-    }
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(getWsUrl());
+        ws.onopen = () => setWsConnected(true);
+        ws.onclose = () => {
+          setWsConnected(false);
+          if (!closed) {
+            reconnectTimer = setTimeout(connect, 5000);
+          }
+        };
+        ws.onerror = () => ws?.close();
+        ws.onmessage = () => fetchMetrics();
+      } catch {
+        reconnectTimer = setTimeout(connect, 5000);
+      }
+    };
+
+    connect();
 
     return () => {
+      closed = true;
       clearInterval(interval);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       ws?.close();
     };
   }, [pollMs]);

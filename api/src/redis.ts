@@ -4,6 +4,11 @@ import { config } from './config.js';
 export const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: 3,
   lazyConnect: true,
+  connectTimeout: 5000,
+});
+
+redis.on('error', (err) => {
+  console.error('[redis]', err.message);
 });
 
 export async function getViewerCount(streamId: string): Promise<number> {

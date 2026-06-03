@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16-alpine
+    ports:
+      - '5432:5432'
     environment:
       POSTGRES_USER: aruna
       POSTGRES_PASSWORD: aruna
@@ -16,6 +18,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - '6379:6379'
     command: redis-server --save "" --appendonly no
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
@@ -127,10 +131,6 @@ services:
         condition: service_healthy
       web:
         condition: service_healthy
-      ingest-1:
-        condition: service_started
-      ingest-2:
-        condition: service_started
 
   # Optional: RTMP port exposure for OBS (maps to ingest pool via round-robin DNS)
   # Publish to rtmp://localhost:1935/live/{streamKey} — nginx stream LB could be added in prod

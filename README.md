@@ -76,11 +76,20 @@ View the **Scale** dashboard at http://localhost:8080/ops for live metrics, inge
 
 ## Local development (without Docker)
 
-Terminal 1 — infrastructure:
+Start infrastructure (Postgres + Redis exposed on localhost):
 
 ```bash
-docker compose up postgres redis ingest-1 -d
+docker compose up postgres redis ingest-1 ingest-2 -d
 ```
+
+Copy env files for host-side services:
+
+```bash
+cp api/.env.example api/.env
+cp realtime/.env.example realtime/.env
+```
+
+Use **`localhost`** in `api/.env` and `realtime/.env` — the hostname `postgres` only resolves inside Docker.
 
 Terminal 2 — API:
 
@@ -93,6 +102,8 @@ Terminal 3 — Realtime:
 ```bash
 cd realtime && npm install && npm run dev
 ```
+
+Ensure Redis is running first: `docker compose up redis -d` (listens on `localhost:6379`).
 
 Terminal 4 — Web:
 

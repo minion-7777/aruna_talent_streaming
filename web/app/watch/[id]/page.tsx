@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { AppNav } from '@/components/AppNav';
 import { HlsPlayer } from '@/components/HlsPlayer';
 import type { Stream } from '@/lib/api';
-import { wsUrl } from '@/lib/api';
+import { getWsUrl } from '@/lib/api';
 
 export default function WatchPage({ params }: { params: Promise<{ id: string }> }) {
   const [streamId, setStreamId] = useState<string | null>(null);
@@ -40,7 +40,8 @@ export default function WatchPage({ params }: { params: Promise<{ id: string }> 
   useEffect(() => {
     if (!streamId) return;
 
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(getWsUrl());
+    ws.onerror = () => ws.close();
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'join', streamId }));
     };
