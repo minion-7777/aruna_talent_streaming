@@ -1,7 +1,9 @@
-const apiUrl =
-  process.env.API_INTERNAL_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  'http://localhost:8080/api';
+function getApiUrl(): string {
+  // Resolve at request time so Docker runtime env vars are picked up
+  if (process.env.API_INTERNAL_URL) return process.env.API_INTERNAL_URL;
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  return 'http://localhost:8080/api';
+}
 
 export interface Stream {
   id: string;
@@ -29,7 +31,7 @@ export interface PlatformMetrics {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${apiUrl}${path}`, {
+  const res = await fetch(`${getApiUrl()}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',

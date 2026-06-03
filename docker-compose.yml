@@ -92,14 +92,26 @@ services:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
         NEXT_PUBLIC_API_URL: http://localhost:8080/api
         NEXT_PUBLIC_WS_URL: ws://localhost:8080/ws
+        NEXT_PUBLIC_APP_URL: http://localhost:8080
     environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_APP_URL: http://localhost:8080
+      CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: http://localhost:8080/
+      CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: http://localhost:8080/
       API_INTERNAL_URL: http://api:3001
       REALTIME_INTERNAL_URL: http://realtime:3002
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/']
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   nginx:
     image: nginx:1.27-alpine
@@ -109,11 +121,16 @@ services:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - nginx_cache:/var/cache/nginx
     depends_on:
-      - api
-      - realtime
-      - web
-      - ingest-1
-      - ingest-2
+      api:
+        condition: service_healthy
+      realtime:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+      ingest-1:
+        condition: service_started
+      ingest-2:
+        condition: service_started
 
   # Optional: RTMP port exposure for OBS (maps to ingest pool via round-robin DNS)
   # Publish to rtmp://localhost:1935/live/{streamKey} — nginx stream LB could be added in prod

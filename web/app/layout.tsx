@@ -23,10 +23,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:8080';
+
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <ClerkProvider>{children}</ClerkProvider>
+        <ClerkProvider
+          signInFallbackRedirectUrl={appUrl}
+          signUpFallbackRedirectUrl={appUrl}
+          signInForceRedirectUrl={appUrl}
+          signUpForceRedirectUrl={appUrl}
+        >
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );
