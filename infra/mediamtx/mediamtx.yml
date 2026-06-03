@@ -1,0 +1,30 @@
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: :9997
+metrics: yes
+metricsAddress: :9998
+
+rtmp: yes
+rtmpAddress: :1935
+
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: mpegts
+hlsSegmentCount: 7
+hlsSegmentDuration: 2s
+hlsAllowOrigin: '*'
+
+paths:
+  ~^live/.+$:
+    source: publisher
+    runOnReady: >
+      curl -sf -X POST http://api:3001/hooks/mediamtx/run-on-publish
+      -H "Content-Type: application/json"
+      -d "{\"path\":\"$MTX_PATH\"}"
+    runOnNotReady: >
+      curl -sf -X POST http://api:3001/hooks/mediamtx/run-on-unpublish
+      -H "Content-Type: application/json"
+      -d "{\"path\":\"$MTX_PATH\"}"
