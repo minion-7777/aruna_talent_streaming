@@ -16,7 +16,18 @@ async function usernameFromClerk() {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const liveOnly = searchParams.get('live') === 'true';
-  const streams = await listStreams(liveOnly);
+  const mine = searchParams.get('mine') === 'true';
+
+  let streams = await listStreams(liveOnly);
+
+  if (mine) {
+    const username = await usernameFromClerk();
+    if (!username) {
+      return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    }
+    streams = streams.filter((s) => s.username === username);
+  }
+
   return NextResponse.json(streams);
 }
 

@@ -118,7 +118,11 @@ export default function WatchPage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
 
-        <p className="mt-4 text-xs text-zinc-400 font-mono break-all">
+        <p className="mt-4 text-xs text-zinc-500">
+          Viewer count updates when watching here or when the HLS playlist URL is opened
+          (same browser/IP counted once per ~45s).
+        </p>
+        <p className="mt-1 text-xs text-zinc-400 font-mono break-all">
           {stream.playbackUrl}
         </p>
       </main>

@@ -1,66 +1,36 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import type { IncomingMessage as WsIncomingMessage } from 'http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Redis } from 'ioredis';
+import { redis } from './redis-store.js';
+import { recordViewer, removeViewer, refreshViewerSession } from './viewers.js';
 
 const port = Number(process.env.PORT ?? 3002);
 const hostname = process.env.HOSTNAME ?? 'realtime-local';
 const redisUrl = process.env.REDIS_URL ?? 'redis://redis:6379';
 
-function createRedisClient(label: string): Redis {
-  const client = new Redis(redisUrl, {
-    maxRetriesPerRequest: 3,
-    connectTimeout: 5000,
-    lazyConnect: true,
-  });
-  client.on('error', (err) => {
-    console.error(`[redis:${label}]`, err.message);
-  });
-  return client;
-}
+const sub = new Redis(redisUrl, {
+  maxRetriesPerRequest: 3,
+  connectTimeout: 5000,
+  lazyConnect: true,
+});
 
-const redis = createRedisClient('main');
-const sub = createRedisClient('sub');
+sub.on('error', (err) => {
+  console.error('[redis:sub]', err.message);
+});
 
 const connections = new Set<WebSocket>();
 
 interface ClientState {
   streamId?: string;
+  clientIp?: string;
   heartbeat?: ReturnType<typeof setInterval>;
 }
 
-async function incrementViewer(streamId: string): Promise<number> {
-  const pipeline = redis.pipeline();
-  pipeline.incr(`viewers:${streamId}`);
-  pipeline.incr('viewers:platform');
-  pipeline.expire(`viewers:${streamId}`, 120);
-  const results = await pipeline.exec();
-  const count = results?.[0]?.[1] as number;
-  await redis.publish(
-    'metrics',
-    JSON.stringify({ type: 'viewer_count', streamId, count }),
-  );
-  return count;
-}
-
-async function decrementViewer(streamId: string): Promise<number> {
-  const pipeline = redis.pipeline();
-  pipeline.decr(`viewers:${streamId}`);
-  pipeline.decr('viewers:platform');
-  const results = await pipeline.exec();
-  let count = (results?.[0]?.[1] as number) ?? 0;
-  if (count < 0) {
-    await redis.set(`viewers:${streamId}`, '0');
-    count = 0;
-  }
-  const platform = await redis.get('viewers:platform');
-  if (platform && parseInt(platform, 10) < 0) {
-    await redis.set('viewers:platform', '0');
-  }
-  await redis.publish(
-    'metrics',
-    JSON.stringify({ type: 'viewer_count', streamId, count }),
-  );
-  return count;
+function clientIpFromRequest(req: IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') return forwarded;
+  return req.socket.remoteAddress ?? 'unknown';
 }
 
 function send(ws: WebSocket, data: unknown) {
@@ -113,9 +83,9 @@ async function main() {
 
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req: WsIncomingMessage) => {
     connections.add(ws);
-    const state: ClientState = {};
+    const state: ClientState = { clientIp: clientIpFromRequest(req) };
 
     send(ws, {
       type: 'connected',
@@ -132,21 +102,23 @@ async function main() {
 
         if (msg.type === 'join' && msg.streamId) {
           if (state.streamId && state.streamId !== msg.streamId) {
-            await decrementViewer(state.streamId);
+            await removeViewer(state.streamId, state.clientIp);
           }
           state.streamId = msg.streamId;
-          const count = await incrementViewer(msg.streamId);
+          const count = await recordViewer(msg.streamId, state.clientIp);
           send(ws, { type: 'joined', streamId: msg.streamId, viewerCount: count });
 
           if (state.heartbeat) clearInterval(state.heartbeat);
           state.heartbeat = setInterval(async () => {
-            await redis.expire(`viewers:${msg.streamId}`, 120);
+            if (state.streamId) {
+              await refreshViewerSession(state.streamId, state.clientIp);
+            }
             send(ws, { type: 'heartbeat_ack' });
           }, 25000);
         }
 
         if (msg.type === 'leave' && state.streamId) {
-          const count = await decrementViewer(state.streamId);
+          const count = await removeViewer(state.streamId, state.clientIp);
           send(ws, { type: 'left', streamId: state.streamId, viewerCount: count });
           if (state.heartbeat) clearInterval(state.heartbeat);
           state.streamId = undefined;
@@ -163,7 +135,7 @@ async function main() {
     ws.on('close', async () => {
       connections.delete(ws);
       if (state.heartbeat) clearInterval(state.heartbeat);
-      if (state.streamId) await decrementViewer(state.streamId);
+      if (state.streamId) await removeViewer(state.streamId, state.clientIp);
     });
   });
 

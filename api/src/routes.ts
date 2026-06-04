@@ -8,6 +8,7 @@ import {
   handlePublish,
   listStreams,
 } from './services/streams.js';
+import { syncIngestState } from './services/ingest-sync.js';
 import {
   getActiveStreamCount,
   getIngestLoad,
@@ -32,10 +33,12 @@ export async function streamRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/v1/streams', async (req) => {
     const liveOnly = (req.query as { live?: string }).live === 'true';
+    if (liveOnly) await syncIngestState();
     return listStreams(liveOnly);
   });
 
   app.get<{ Params: { id: string } }>('/v1/streams/:id', async (req, reply) => {
+    await syncIngestState();
     const stream = await getStream(req.params.id);
     if (!stream) return reply.status(404).send({ error: 'Stream not found' });
     return stream;
@@ -105,6 +108,18 @@ export async function hookRoutes(app: FastifyInstance): Promise<void> {
     const streamKey = body.path?.replace(/^live\//, '');
     if (streamKey) await handlePublish(streamKey, 'publish_done');
     return { ok: true };
+  });
+
+  // Called by nginx mirror when a browser loads an HLS playlist (direct m3u8 URL)
+  app.get('/v1/hooks/hls-viewer', async (req, reply) => {
+    const uri =
+      (req.headers['x-original-uri'] as string) ||
+      (req.query as { uri?: string }).uri ||
+      '';
+    const ip = req.headers['x-forwarded-for'] as string | undefined;
+    const { recordHlsViewer } = await import('./services/hls-viewer.js');
+    await recordHlsViewer(uri, ip);
+    return reply.status(204).send();
   });
 }
 

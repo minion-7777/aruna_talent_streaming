@@ -68,7 +68,8 @@ services:
       retries: 5
 
   ingest-1:
-    image: bluenviron/mediamtx:1.11.3
+    build: ./infra/mediamtx
+    image: aruna-mediamtx:1.11.3
     ports:
       - '19351:1935'
     volumes:
@@ -79,7 +80,8 @@ services:
         condition: service_healthy
 
   ingest-2:
-    image: bluenviron/mediamtx:1.11.3
+    build: ./infra/mediamtx
+    image: aruna-mediamtx:1.11.3
     ports:
       - '19352:1935'
     volumes:
