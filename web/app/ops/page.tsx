@@ -60,12 +60,34 @@ export default function OpsPage() {
           Stateless control plane and ingest pool — scale replicas locally to increase capacity for concurrent streams and WebSocket viewers.
         </p>
 
-        <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <StatCard label="Live streams" value={metrics?.liveStreams ?? '—'} />
           <StatCard label="Platform viewers" value={metrics?.platformViewers ?? '—'} />
-          <StatCard label="Ingest nodes" value={metrics?.ingestPoolSize ?? '—'} />
           <StatCard
-            label="API instance"
+            label="API replicas"
+            value={metrics?.scaling?.api.replicas ?? '—'}
+            hint={metrics?.scaling?.api.replicas === 1 ? '1 pod' : 'scaled'}
+          />
+          <StatCard
+            label="Realtime replicas"
+            value={metrics?.scaling?.realtime.replicas ?? '—'}
+            hint={
+              metrics?.scaling
+                ? `${metrics.scaling.realtime.totalConnections} ws total`
+                : undefined
+            }
+          />
+          <StatCard
+            label="Ingest reachable"
+            value={
+              metrics?.scaling
+                ? `${metrics.scaling.ingest.poolSize} / ${metrics.scaling.ingest.configuredSize}`
+                : (metrics?.ingestPoolSize ?? '—')
+            }
+            hint="up / configured"
+          />
+          <StatCard
+            label="This API pod"
             value={metrics?.instance ?? '—'}
             mono
           />
@@ -78,7 +100,12 @@ export default function OpsPage() {
               {(metrics?.ingestNodes ?? []).map((node) => (
                 <div key={node.node}>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="font-mono">{node.node}</span>
+                    <span className="font-mono">
+                      {node.node}
+                      {node.reachable === false && (
+                        <span className="ml-2 text-red-500">down</span>
+                      )}
+                    </span>
                     <span>{node.activeStreams} streams</span>
                   </div>
                   <div className="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
@@ -150,11 +177,11 @@ export default function OpsPage() {
             Scale locally
           </h2>
           <pre className="rounded-lg bg-zinc-900 text-zinc-100 p-4 text-sm overflow-x-auto font-mono">
-{`# Scale API + realtime replicas
-./scripts/scale.sh api=3 realtime=2
+{`# Scale API + realtime (both counts required)
+./scripts/scale.sh api=3 realtime=3
 
-# Or with docker compose directly
-docker compose up -d --scale api=3 --scale realtime=2
+# Equivalent
+docker compose up -d --scale api=3 --scale realtime=3
 
 # Ingest pool: 2 nodes (ingest-1, ingest-2) — add more in compose + nginx`}
           </pre>
@@ -186,10 +213,12 @@ docker compose up -d --scale api=3 --scale realtime=2
 function StatCard({
   label,
   value,
+  hint,
   mono,
 }: {
   label: string;
   value: string | number;
+  hint?: string;
   mono?: boolean;
 }) {
   return (
@@ -198,6 +227,7 @@ function StatCard({
       <div className={`mt-1 text-3xl font-bold ${mono ? 'font-mono text-lg' : ''}`}>
         {value}
       </div>
+      {hint && <div className="mt-1 text-xs text-zinc-500">{hint}</div>}
     </div>
   );
 }

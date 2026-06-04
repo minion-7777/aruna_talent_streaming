@@ -20,13 +20,33 @@ export interface Stream {
   endedAt: string | null;
 }
 
+export interface ScalingTopology {
+  api: {
+    replicas: number;
+    instances: { instance: string; uptime?: number }[];
+  };
+  realtime: {
+    replicas: number;
+    totalConnections: number;
+    instances: { instance: string; uptime?: number; connections?: number }[];
+  };
+  ingest: {
+    configured: string[];
+    poolSize: number;
+    configuredSize: number;
+    nodes: { node: string; reachable: boolean; activeStreams: number }[];
+  };
+}
+
 export interface PlatformMetrics {
   instance: string;
   uptime: number;
   liveStreams: number;
   platformViewers: number;
-  ingestNodes: { node: string; activeStreams: number }[];
+  ingestNodes: { node: string; activeStreams: number; reachable?: boolean }[];
   ingestPoolSize: number;
+  ingestConfiguredSize?: number;
+  scaling?: ScalingTopology;
   timestamp: string;
 }
 

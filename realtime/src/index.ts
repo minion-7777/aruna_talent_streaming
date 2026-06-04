@@ -1,8 +1,10 @@
+import os from 'node:os';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import type { IncomingMessage as WsIncomingMessage } from 'http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Redis } from 'ioredis';
 import { redis } from './redis-store.js';
+import { startHeartbeat } from './registry.js';
 import {
   getViewerCount,
   recordViewer,
@@ -11,7 +13,12 @@ import {
 } from './viewers.js';
 
 const port = Number(process.env.PORT ?? 3002);
-const hostname = process.env.HOSTNAME ?? 'realtime-local';
+function resolveHostname(): string {
+  const id = process.env.INSTANCE_ID ?? process.env.HOSTNAME ?? os.hostname();
+  if (id && id !== '0.0.0.0') return id;
+  return os.hostname();
+}
+const hostname = resolveHostname();
 const redisUrl = process.env.REDIS_URL ?? 'redis://redis:6379';
 
 const sub = new Redis(redisUrl, {
@@ -165,7 +172,13 @@ async function main() {
     console.log(`Realtime gateway on :${port} (${hostname})`);
   });
 
+  const stopRegistry = startHeartbeat('realtime', () => ({
+    uptime: process.uptime(),
+    connections: connections.size,
+  }));
+
   const shutdown = async () => {
+    stopRegistry();
     wss.close();
     server.close();
     await redis.quit();

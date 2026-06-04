@@ -1,6 +1,14 @@
+import os from 'node:os';
+
+function resolveHostname(): string {
+  const id = process.env.INSTANCE_ID ?? process.env.HOSTNAME ?? os.hostname();
+  if (id && id !== '0.0.0.0') return id;
+  return os.hostname();
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 3001),
-  hostname: process.env.HOSTNAME ?? 'api-local',
+  hostname: resolveHostname(),
   postgresUrl:
     process.env.DATABASE_URL ??
     'postgres://aruna:aruna@postgres:5432/aruna',

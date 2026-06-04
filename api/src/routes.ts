@@ -15,6 +15,7 @@ import {
   getPlatformViewerCount,
 } from './redis.js';
 import { pool } from './db.js';
+import { getPlatformTopology } from './services/topology.js';
 
 const createBody = z.object({
   username: z.string().min(1).max(64),
@@ -148,12 +149,12 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   }));
 
   app.get('/v1/platform/metrics', async () => {
-    const ingestLoads = await Promise.all(
-      config.ingestNodes.map(async (node: string) => ({
-        node,
-        activeStreams: await getIngestLoad(node),
-      })),
-    );
+    const topology = await getPlatformTopology();
+    const ingestLoads = topology.ingest.nodes.map((n) => ({
+      node: n.node,
+      activeStreams: n.activeStreams,
+      reachable: n.reachable,
+    }));
 
     const liveStreams = await getActiveStreamCount();
     const platformViewers = await getPlatformViewerCount();
@@ -164,10 +165,14 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       liveStreams,
       platformViewers,
       ingestNodes: ingestLoads,
-      ingestPoolSize: config.ingestNodes.length,
+      ingestPoolSize: topology.ingest.poolSize,
+      ingestConfiguredSize: topology.ingest.configuredSize,
+      scaling: topology,
       timestamp: new Date().toISOString(),
     };
   });
+
+  app.get('/v1/platform/topology', async () => getPlatformTopology());
 }
 
 export async function internalRoutes(app: FastifyInstance): Promise<void> {

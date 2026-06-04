@@ -10,11 +10,15 @@ import {
   streamRoutes,
 } from './routes.js';
 import { startViewerSessionExpiryListener } from './services/viewer-sessions.js';
+import { startHeartbeat } from './services/registry.js';
 
 async function main() {
   await initDb();
   await redis.connect();
   const viewerSessionSub = await startViewerSessionExpiryListener();
+  const stopRegistry = startHeartbeat('api', () => ({
+    uptime: process.uptime(),
+  }));
 
   const app = Fastify({ logger: true });
 
@@ -27,6 +31,7 @@ async function main() {
 
   const shutdown = async () => {
     app.log.info('Shutting down gracefully…');
+    stopRegistry();
     await app.close();
     await viewerSessionSub.quit();
     await redis.quit();

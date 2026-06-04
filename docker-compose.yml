@@ -36,15 +36,13 @@ services:
       HLS_BASE_URL: http://localhost:8080/hls
       PUBLIC_RTMP_HOST: localhost
       PUBLIC_RTMP_PORTS: '19351,19352'
-      HOSTNAME: api-${HOSTNAME:-local}
       INTERNAL_API_KEY: dev-internal-key
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    deploy:
-      replicas: 1
+    # Scale with: docker compose up -d --scale api=N  or  ./scripts/scale.sh api=N realtime=M
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health/ready']
       interval: 10s
@@ -55,12 +53,9 @@ services:
     build: ./realtime
     environment:
       REDIS_URL: redis://redis:6379
-      HOSTNAME: realtime-${HOSTNAME:-local}
     depends_on:
       redis:
         condition: service_healthy
-    deploy:
-      replicas: 1
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3002/health/ready']
       interval: 10s

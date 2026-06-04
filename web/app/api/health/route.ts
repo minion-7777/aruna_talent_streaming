@@ -1,44 +1,57 @@
 import { NextResponse } from 'next/server';
-
-const apiUrl = process.env.API_INTERNAL_URL ?? 'http://api:3001';
-const realtimeUrl = process.env.REALTIME_INTERNAL_URL ?? 'http://realtime:3002';
+import { getPlatformMetrics } from '@/lib/api';
 
 export async function GET() {
-  const results: {
-    name: string;
-    status: string;
-    instance?: string;
-    connections?: number;
-  }[] = [];
-
   try {
-    const apiRes = await fetch(`${apiUrl}/health/live`, { cache: 'no-store' });
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      results.push({ name: 'API', status: 'live', instance: data.instance });
+    const metrics = await getPlatformMetrics();
+    const scaling = metrics.scaling;
+    const results: {
+      name: string;
+      status: string;
+      instance?: string;
+      connections?: number;
+    }[] = [];
+
+    if (scaling) {
+      for (const inst of scaling.api.instances) {
+        results.push({
+          name: 'API',
+          status: 'live',
+          instance: inst.instance,
+        });
+      }
+      if (scaling.api.replicas === 0) {
+        results.push({ name: 'API', status: 'no replicas registered' });
+      }
+
+      for (const inst of scaling.realtime.instances) {
+        results.push({
+          name: 'Realtime',
+          status: 'live',
+          instance: inst.instance,
+          connections: inst.connections,
+        });
+      }
+      if (scaling.realtime.replicas === 0) {
+        results.push({ name: 'Realtime', status: 'no replicas registered' });
+      }
+
+      for (const node of scaling.ingest.nodes) {
+        results.push({
+          name: `Ingest ${node.node}`,
+          status: node.reachable ? 'reachable' : 'unreachable',
+          instance: `${node.activeStreams} stream(s)`,
+        });
+      }
     }
+
+    results.push({ name: 'Nginx edge', status: 'proxy' });
+
+    return NextResponse.json(results);
   } catch {
-    results.push({ name: 'API', status: 'unreachable' });
+    return NextResponse.json(
+      [{ name: 'Platform', status: 'metrics unavailable' }],
+      { status: 503 },
+    );
   }
-
-  try {
-    const rtRes = await fetch(`${realtimeUrl}/health/live`, { cache: 'no-store' });
-    if (rtRes.ok) {
-      const data = await rtRes.json();
-      results.push({
-        name: 'Realtime',
-        status: 'live',
-        instance: data.instance,
-        connections: data.connections,
-      });
-    }
-  } catch {
-    results.push({ name: 'Realtime', status: 'unreachable' });
-  }
-
-  results.push({ name: 'Nginx edge', status: 'proxy' });
-  results.push({ name: 'Ingest-1', status: 'rtmp:19351' });
-  results.push({ name: 'Ingest-2', status: 'rtmp:19352' });
-
-  return NextResponse.json(results);
 }
