@@ -51,28 +51,102 @@ Open **http://localhost:8080**
 3. In OBS: Custom service → paste RTMP URL + stream key
 4. Start streaming → open the watch link
 
-RTMP ports: `19351` (ingest-1), `19352` (ingest-2)
+RTMP ports: `19351` (ingest-1), `19352` (ingest-2) — see [Adding an ingest node](#adding-an-ingest-node) for more
 
 ## Scale locally
 
 Demonstrate horizontal scaling by adding stateless replicas:
 
 ```bash
-# Scale API + realtime
-./scripts/scale.sh api=3 realtime=2
+# Scale API + realtime (both counts required)
+./scripts/scale.sh api=3 realtime=3
 
 # Or directly
-docker compose up -d --scale api=3 --scale realtime=2
+docker compose up -d --scale api=3 --scale realtime=3
 ```
 
-View the **Scale** dashboard at http://localhost:8080/ops for live metrics, ingest load distribution, and scaling instructions.
+View the **Scale** dashboard at http://localhost:8080/ops for live API/realtime replica counts, ingest load, and per-node health.
 
 ### What scales
 
-- **More concurrent streams** → add ingest nodes (edit `INGEST_NODES`, nginx upstreams, compose services)
 - **More API traffic** → `--scale api=N` (nginx least_conn)
 - **More WebSocket viewers** → `--scale realtime=N` (Redis pub/sub syncs counts)
+- **More concurrent streams** → add ingest nodes (see below — not `docker compose scale`)
 - **More playback viewers** → nginx HLS cache simulates CDN (95%+ offload in production)
+
+### Adding an ingest node
+
+Ingest nodes are **separate MediaMTX services** (`ingest-1`, `ingest-2`, …), not replicas of one service. To add `ingest-3`:
+
+#### 1. Docker Compose — service + RTMP port
+
+Add a service (copy `ingest-2`, change name, hostname, and host port):
+
+```yaml
+  ingest-3:
+    build: ./infra/mediamtx
+    image: aruna-mediamtx:1.11.3
+    ports:
+      - '19353:1935'    # OBS uses this when the stream is assigned to ingest-3
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    hostname: ingest-3
+    depends_on:
+      api:
+        condition: service_healthy
+```
+
+`hostname` must match the node name used everywhere else (`ingest-3`).
+
+#### 2. API environment — pool + RTMP ports
+
+On the `api` service in `docker-compose.yml` (and `api/.env` for local dev):
+
+```yaml
+      INGEST_NODES: ingest-1,ingest-2,ingest-3
+      PUBLIC_RTMP_PORTS: '19351,19352,19353'
+```
+
+Ports align by index: `19351` → `ingest-1`, `19352` → `ingest-2`, `19353` → `ingest-3`. New streams pick the least-loaded node from `INGEST_NODES`.
+
+#### 3. Nginx — HLS upstream + locations
+
+In `infra/nginx/nginx.conf`:
+
+```nginx
+    upstream hls_ingest_3 {
+        server ingest-3:8888;
+    }
+```
+
+Add two `location` blocks (mirror the `ingest-2` pair, replace `ingest-2` / `hls_ingest_2` with `ingest-3` / `hls_ingest_3`):
+
+- `^/hls/ingest-3/live/([^/]+)/index\.m3u8$` — include `mirror /_hls_viewer` for viewer counts
+- `^/hls/ingest-3/(.*)$` — segments and other HLS paths
+
+Playback URL pattern: `http://localhost:8080/hls/ingest-3/live/{streamKey}/index.m3u8`
+
+#### 4. Apply
+
+```bash
+docker compose up -d --build ingest-3 api nginx
+```
+
+Recreate **api** so it loads the new `INGEST_NODES` env.
+
+#### Verify
+
+| Check | Expected |
+|-------|----------|
+| http://localhost:8080/ops | **Ingest reachable** shows `3 / 3`; `ingest-3` in load + health |
+| Studio (new stream) | May show `ingest-3` when it has the lowest load |
+| OBS | RTMP URL port **19353** when assigned to `ingest-3` |
+
+**Notes**
+
+- Existing streams keep their original `ingest_node`; only new streams use the expanded pool.
+- `docker compose scale ingest-1=2` does **not** add nodes — use named services instead.
+- For more nodes, repeat with `ingest-4`, port `19354`, nginx blocks, and extend the env lists.
 
 ## Local development (without Docker)
 
