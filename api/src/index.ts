@@ -9,10 +9,12 @@ import {
   internalRoutes,
   streamRoutes,
 } from './routes.js';
+import { startViewerSessionExpiryListener } from './services/viewer-sessions.js';
 
 async function main() {
   await initDb();
   await redis.connect();
+  const viewerSessionSub = await startViewerSessionExpiryListener();
 
   const app = Fastify({ logger: true });
 
@@ -26,6 +28,7 @@ async function main() {
   const shutdown = async () => {
     app.log.info('Shutting down gracefully…');
     await app.close();
+    await viewerSessionSub.quit();
     await redis.quit();
     process.exit(0);
   };

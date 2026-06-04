@@ -1,11 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Show, SignInButton } from '@clerk/nextjs';
 import { useUser } from '@clerk/nextjs';
 import { AppNav } from '@/components/AppNav';
 import type { Stream } from '@/lib/api';
+import { getWsUrl } from '@/lib/api';
+
+function watchingLabel(count: number) {
+  return `${count} watching`;
+}
 
 export default function StudioPage() {
   const { user } = useUser();
@@ -38,17 +43,48 @@ export default function StudioPage() {
   useEffect(() => {
     if (!user) return;
     void loadStreams(true);
-    const interval = setInterval(() => loadStreams(false), 10000);
+    const interval = setInterval(() => loadStreams(false), 5000);
     return () => clearInterval(interval);
   }, [user, loadStreams]);
 
+  const selectedId = stream?.id ?? null;
+  const displayStream = useMemo(() => {
+    if (!stream) return null;
+    return streams.find((s) => s.id === stream.id) ?? stream;
+  }, [stream, streams]);
+
+  const patchViewerCount = useCallback((streamId: string, viewerCount: number) => {
+    setStreams((prev) =>
+      prev.map((s) => (s.id === streamId ? { ...s, viewerCount } : s)),
+    );
+  }, []);
+
   useEffect(() => {
-    if (!stream) return;
-    const current = streams.find((s) => s.id === stream.id);
-    if (current && current.state !== stream.state) {
-      setStream(current);
-    }
-  }, [streams, stream]);
+    if (!selectedId) return;
+
+    const ws = new WebSocket(getWsUrl());
+    ws.onerror = () => ws.close();
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'observe', streamId: selectedId }));
+    };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data as string) as {
+        type: string;
+        viewerCount?: number;
+        payload?: { type: string; count?: number; streamId?: string };
+      };
+      if (msg.type === 'observed' && msg.viewerCount != null) {
+        patchViewerCount(selectedId, msg.viewerCount);
+      }
+      if (msg.type === 'metrics' && msg.payload?.streamId === selectedId) {
+        patchViewerCount(selectedId, msg.payload.count ?? 0);
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [selectedId, patchViewerCount]);
 
   const create = async () => {
     setLoading(true);
@@ -161,45 +197,48 @@ export default function StudioPage() {
                     {loading ? 'Creating…' : 'Create stream'}
                   </button>
                 </div>
-              ) : (
+              ) : displayStream ? (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-lg font-semibold truncate">{stream.title}</h2>
-                    <StatusBadge state={stream.state} />
+                    <h2 className="text-lg font-semibold truncate">{displayStream.title}</h2>
+                    <StatusBadge state={displayStream.state} />
                   </div>
 
                   <CredentialBlock
                     label="RTMP URL"
-                    value={stream.rtmpUrl}
+                    value={displayStream.rtmpUrl}
                     copied={copied === 'rtmp'}
-                    onCopy={() => copy('rtmp', stream.rtmpUrl)}
+                    onCopy={() => copy('rtmp', displayStream.rtmpUrl)}
                   />
                   <CredentialBlock
                     label="Stream key"
-                    value={stream.streamKey}
+                    value={displayStream.streamKey}
                     copied={copied === 'key'}
-                    onCopy={() => copy('key', stream.streamKey)}
+                    onCopy={() => copy('key', displayStream.streamKey)}
                     secret
                   />
 
                   <div className="rounded-lg bg-zinc-100 dark:bg-zinc-900 p-4 text-sm space-y-1">
                     <p>
                       <span className="text-zinc-500">Ingest node:</span>{' '}
-                      <code className="font-mono">{stream.ingestNode}</code>
+                      <code className="font-mono">{displayStream.ingestNode}</code>
                     </p>
                     <p>
                       <span className="text-zinc-500">Watch:</span>{' '}
-                      <Link href={`/watch/${stream.id}`} className="text-violet-600 hover:underline">
-                        /watch/{stream.id}
+                      <Link
+                        href={`/watch/${displayStream.id}`}
+                        className="text-violet-600 hover:underline"
+                      >
+                        /watch/{displayStream.id}
                       </Link>
                     </p>
-                    <p>
-                      <span className="text-zinc-500">Viewers:</span> {stream.viewerCount}
+                    <p className="text-zinc-700 dark:text-zinc-300">
+                      {watchingLabel(displayStream.viewerCount)}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    {!['ENDED', 'ARCHIVED'].includes(stream.state) && (
+                    {!['ENDED', 'ARCHIVED'].includes(displayStream.state) && (
                       <button
                         onClick={end}
                         disabled={loading}
@@ -225,7 +264,7 @@ export default function StudioPage() {
                     </ol>
                   </div>
                 </div>
-              )}
+              ) : null}
             </section>
           </div>
         </Show>
@@ -269,7 +308,7 @@ function StreamListItem({
           </span>
         </div>
         <p className="mt-1 text-xs text-zinc-500 truncate">
-          {stream.viewerCount} watching · {stream.ingestNode} ·{' '}
+          {watchingLabel(stream.viewerCount)} · {stream.ingestNode} ·{' '}
           {new Date(stream.createdAt).toLocaleString()}
         </p>
       </button>

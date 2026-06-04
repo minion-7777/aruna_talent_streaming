@@ -119,8 +119,8 @@ export default function WatchPage({ params }: { params: Promise<{ id: string }> 
         )}
 
         <p className="mt-4 text-xs text-zinc-500">
-          Viewer count updates when watching here or when the HLS playlist URL is opened
-          (same browser/IP counted once per ~45s).
+          Watching count includes this page and direct m3u8 playback; it drops ~45s after
+          playback stops (no WebSocket required).
         </p>
         <p className="mt-1 text-xs text-zinc-400 font-mono break-all">
           {stream.playbackUrl}

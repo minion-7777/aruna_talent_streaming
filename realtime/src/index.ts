@@ -3,7 +3,12 @@ import type { IncomingMessage as WsIncomingMessage } from 'http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Redis } from 'ioredis';
 import { redis } from './redis-store.js';
-import { recordViewer, removeViewer, refreshViewerSession } from './viewers.js';
+import {
+  getViewerCount,
+  recordViewer,
+  removeViewer,
+  refreshViewerSession,
+} from './viewers.js';
 
 const port = Number(process.env.PORT ?? 3002);
 const hostname = process.env.HOSTNAME ?? 'realtime-local';
@@ -25,6 +30,8 @@ interface ClientState {
   streamId?: string;
   clientIp?: string;
   heartbeat?: ReturnType<typeof setInterval>;
+  /** true after `join` — broadcaster studio uses `observe` only */
+  countedAsViewer?: boolean;
 }
 
 function clientIpFromRequest(req: IncomingMessage): string {
@@ -101,27 +108,40 @@ async function main() {
         };
 
         if (msg.type === 'join' && msg.streamId) {
-          if (state.streamId && state.streamId !== msg.streamId) {
+          if (state.countedAsViewer && state.streamId && state.streamId !== msg.streamId) {
             await removeViewer(state.streamId, state.clientIp);
           }
           state.streamId = msg.streamId;
+          state.countedAsViewer = true;
           const count = await recordViewer(msg.streamId, state.clientIp);
           send(ws, { type: 'joined', streamId: msg.streamId, viewerCount: count });
 
           if (state.heartbeat) clearInterval(state.heartbeat);
           state.heartbeat = setInterval(async () => {
-            if (state.streamId) {
+            if (state.streamId && state.countedAsViewer) {
               await refreshViewerSession(state.streamId, state.clientIp);
             }
             send(ws, { type: 'heartbeat_ack' });
           }, 25000);
         }
 
-        if (msg.type === 'leave' && state.streamId) {
+        if (msg.type === 'observe' && msg.streamId) {
+          if (state.countedAsViewer && state.streamId) {
+            await removeViewer(state.streamId, state.clientIp);
+            state.countedAsViewer = false;
+          }
+          if (state.heartbeat) clearInterval(state.heartbeat);
+          state.streamId = msg.streamId;
+          const count = await getViewerCount(msg.streamId);
+          send(ws, { type: 'observed', streamId: msg.streamId, viewerCount: count });
+        }
+
+        if (msg.type === 'leave' && state.streamId && state.countedAsViewer) {
           const count = await removeViewer(state.streamId, state.clientIp);
           send(ws, { type: 'left', streamId: state.streamId, viewerCount: count });
           if (state.heartbeat) clearInterval(state.heartbeat);
           state.streamId = undefined;
+          state.countedAsViewer = false;
         }
 
         if (msg.type === 'ping') {
@@ -135,7 +155,9 @@ async function main() {
     ws.on('close', async () => {
       connections.delete(ws);
       if (state.heartbeat) clearInterval(state.heartbeat);
-      if (state.streamId) await removeViewer(state.streamId, state.clientIp);
+      if (state.streamId && state.countedAsViewer) {
+        await removeViewer(state.streamId, state.clientIp);
+      }
     });
   });
 
